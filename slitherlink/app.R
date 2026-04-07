@@ -12,9 +12,13 @@ n <- nrow(contraintes)
 aretes_h <- matrix(0, nrow = n + 1, ncol = n)
 aretes_v <- matrix(0, nrow = n, ncol = n + 1)
 
-# Compte les segments autour d'une case
+# Compte les segments autour d'une case (i=ligne bas→haut, j=colonne gauche→droite)
 compter_segments <- function(ah, av, i, j) {
-  ah[i, j] + ah[i + 1, j] + av[i, j] + av[i, j + 1]
+  haut   <- ah[i + 1, j]     # arête du haut de la case
+  bas    <- ah[i,     j]     # arête du bas de la case
+  gauche <- av[i,     j]     # arête gauche
+  droite <- av[i,     j + 1] # arête droite
+  return(haut + bas + gauche + droite)
 }
 
 # Compte les segments qui touchent un point (col, row)
@@ -188,6 +192,7 @@ server <- function(input, output, session) {
       }
     }
     
+    
     # Boucle
     statut_boucle <- verifier_boucle(ah(), av())
     
@@ -224,6 +229,17 @@ server <- function(input, output, session) {
       }
     }
     
+    # Chiffres
+    for (i in 1:n) {
+      for (j in 1:n) {
+        val <- contraintes[n + 1 - i, j]
+        if (!is.na(val)) {
+          s <- compter_segments(ah(), av(), i, j)
+          col_texte <- if (s == val) "#27ae60" else "#e74c3c"
+          text(j - 0.5, i - 0.5, labels = val, cex = 2, font = 2, col = col_texte)
+        }
+      }
+    }
     # Colorier les points invalides en rouge
     for (row in 1:(n + 1)) {
       for (col in 1:(n + 1)) {
