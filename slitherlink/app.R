@@ -9,54 +9,50 @@ contraintes <- matrix(
 )
 
 n <- nrow(contraintes)
-
-# Arêtes horizontales : (n+1) lignes × n colonnes → 1 = tracée, 0 = non tracée
 aretes_h <- matrix(0, nrow = n + 1, ncol = n)
-# Arêtes verticales  : n lignes × (n+1) colonnes
 aretes_v <- matrix(0, nrow = n, ncol = n + 1)
+
+# Compte les segments autour d'une case (i=ligne, j=colonne)
+compter_segments <- function(ah, av, i, j) {
+  haut  <- ah[i,     j]   # arête du haut
+  bas   <- ah[i + 1, j]   # arête du bas
+  gauche <- av[i,   j]    # arête gauche
+  droite <- av[i,   j + 1] # arête droite
+  return(haut + bas + gauche + droite)
+}
 
 ui <- fluidPage(
   titlePanel("Slitherlink"),
   mainPanel(
     plotOutput("grille", width = "400px", height = "400px",
-               click = "clic_grille")  # on écoute les clics !
+               click = "clic_grille"),
+    textOutput("message")  # message de validation
   )
 )
 
 server <- function(input, output, session) {
   
-  # Stockage réactif des arêtes (se met à jour quand on clique)
   ah <- reactiveVal(aretes_h)
   av <- reactiveVal(aretes_v)
   
-  # Quand l'utilisateur clique sur la grille
   observeEvent(input$clic_grille, {
     cx <- input$clic_grille$x
     cy <- input$clic_grille$y
+    seuil <- 0.2
     
-    seuil <- 0.2  # distance max pour détecter une arête
-    
-    # Chercher l'arête horizontale la plus proche du clic
     for (i in 0:n) {
       for (j in 1:n) {
-        # Centre de l'arête horizontale entre (j-1, i) et (j, i)
-        mx <- j - 0.5
-        my <- i
-        if (abs(cx - mx) < 0.4 && abs(cy - my) < seuil) {
+        if (abs(cx - (j - 0.5)) < 0.4 && abs(cy - i) < seuil) {
           m <- ah()
-          m[i + 1, j] <- 1 - m[i + 1, j]  # bascule 0↔1
+          m[i + 1, j] <- 1 - m[i + 1, j]
           ah(m)
           return()
         }
       }
     }
-    
-    # Chercher l'arête verticale la plus proche du clic
     for (i in 1:n) {
       for (j in 0:n) {
-        mx <- j
-        my <- i - 0.5
-        if (abs(cx - mx) < seuil && abs(cy - my) < 0.4) {
+        if (abs(cx - j) < seuil && abs(cy - (i - 0.5)) < 0.4) {
           m <- av()
           m[i, j + 1] <- 1 - m[i, j + 1]
           av(m)
@@ -66,40 +62,77 @@ server <- function(input, output, session) {
     }
   })
   
+  # Vérification des contraintes
+  output$message <- renderText({
+    erreurs <- 0
+    ok <- 0
+    
+    for (i in 1:n) {
+      for (j in 1:n) {
+        val <- contraintes[n + 1 - i, j]
+        if (!is.na(val)) {
+          segments_case <- compter_segments(ah(), av(), i, j)
+          if (segments_case == val) {
+            ok <- ok + 1
+          } else {
+            erreurs <- erreurs + 1
+          }
+        }
+      }
+    }
+    
+    total <- ok + erreurs
+    if (erreurs == 0 && ok > 0) {
+      paste("Toutes les contraintes sont respectées !")
+    } else {
+      paste(ok, "/", total, "contraintes respectées")
+    }
+  })
+  
   output$grille <- renderPlot({
     plot(NULL,
          xlim = c(-0.5, n + 0.5), ylim = c(-0.5, n + 0.5),
          asp = 1, xlab = "", ylab = "", axes = FALSE)
     
-    # Dessiner les arêtes tracées
-    for (i in 0:n) {
-      for (j in 1:n) {
-        if (ah()[i + 1, j] == 1) {
-          segments(j - 1, i, j, i, col = "steelblue", lwd = 3)
-        }
-      }
-    }
-    for (i in 1:n) {
-      for (j in 0:n) {
-        if (av()[i, j + 1] == 1) {
-          segments(j, i - 1, j, i, col = "steelblue", lwd = 3)
-        }
-      }
-    }
-    
-    # Points
-    for (i in 0:n) {
-      for (j in 0:n) {
-        points(j, i, pch = 19, cex = 1.8)
-      }
-    }
-    
-    # Chiffres
+    # Colorier les cases selon leur état
     for (i in 1:n) {
       for (j in 1:n) {
         val <- contraintes[n + 1 - i, j]
         if (!is.na(val)) {
-          text(j - 0.5, i - 0.5, labels = val, cex = 2, font = 2, col = "#333333")
+          segments_case <- compter_segments(ah(), av(), i, j)
+          couleur <- if (segments_case == val) "#c8f7c5" else "white"
+          rect(j - 1, i - 1, j, i, col = couleur, border = NA)
+        }
+      }
+    }
+    
+    # Arêtes tracées
+    for (i in 0:n) {
+      for (j in 1:n) {
+        if (ah()[i + 1, j] == 1)
+          segments(j - 1, i, j, i, col = "steelblue", lwd = 3)
+      }
+    }
+    for (i in 1:n) {
+      for (j in 0:n) {
+        if (av()[i, j + 1] == 1)
+          segments(j, i - 1, j, i, col = "steelblue", lwd = 3)
+      }
+    }
+    
+    # Points
+    for (i in 0:n)
+      for (j in 0:n)
+        points(j, i, pch = 19, cex = 1.8)
+    
+    # Chiffres avec couleur selon l'état
+    for (i in 1:n) {
+      for (j in 1:n) {
+        val <- contraintes[n + 1 - i, j]
+        if (!is.na(val)) {
+          segments_case <- compter_segments(ah(), av(), i, j)
+          couleur_texte <- if (segments_case == val) "#27ae60" else "#e74c3c"
+          text(j - 0.5, i - 0.5, labels = val, cex = 2, font = 2, col = couleur_texte)
         }
       }
     }
