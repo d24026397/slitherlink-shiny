@@ -12,13 +12,125 @@ n <- nrow(contraintes)
 aretes_h <- matrix(0, nrow = n + 1, ncol = n)
 aretes_v <- matrix(0, nrow = n, ncol = n + 1)
 
-# Compte les segments autour d'une case (i=ligne, j=colonne)
+# Compte les segments autour d'une case
 compter_segments <- function(ah, av, i, j) {
-  haut  <- ah[i,     j]   # arête du haut
-  bas   <- ah[i + 1, j]   # arête du bas
-  gauche <- av[i,   j]    # arête gauche
-  droite <- av[i,   j + 1] # arête droite
-  return(haut + bas + gauche + droite)
+  ah[i, j] + ah[i + 1, j] + av[i, j] + av[i, j + 1]
+}
+
+# Compte les segments qui touchent un point (col, row)
+segments_au_point <- function(ah, av, row, col) {
+  total <- 0
+  if (col > 1) total <- total + ah[row, col - 1]      # arête gauche
+  if (col <= n) total <- total + ah[row, col]          # arête droite
+  if (row > 1) total <- total + av[row - 1, col]      # arête du haut
+  if (row <= n) total <- total + av[row, col]          # arête du bas
+  return(total)
+}
+
+# Vérifie si les segments forment une seule boucle fermée
+verifier_boucle <- function(ah, av) {
+  # Règle 1 : chaque point doit avoir 0 ou 2 segments (jamais 1 ou 3)
+  for (row in 1:(n + 1)) {
+    for (col in 1:(n + 1)) {
+      s <- segments_au_point(ah, av, row, col)
+      if (s == 1 || s == 3) return("invalide")
+    }
+  }
+  
+  # Compter le total de segments tracés
+  total_segments <- sum(ah) + sum(av)
+  if (total_segments == 0) return("vide")
+  
+  # Règle 2 : une seule boucle (parcours en profondeur)
+  # Trouver un point de départ (premier point avec 2 segments)
+  depart_row <- NA
+  depart_col <- NA
+  for (row in 1:(n + 1)) {
+    for (col in 1:(n + 1)) {
+      if (segments_au_point(ah, av, row, col) == 2) {
+        depart_row <- row
+        depart_col <- col
+        break
+      }
+    }
+    if (!is.na(depart_row)) break
+  }
+  
+  if (is.na(depart_row)) return("vide")
+  
+  # Parcourir la boucle depuis le point de départ
+  visites <- 0
+  cur_row <- depart_row
+  cur_col <- depart_col
+  prev_row <- NA
+  prev_col <- NA
+  
+  repeat {
+    visites <- visites + 1
+    if (visites > total_segments + 1) break  # sécurité anti-boucle infinie
+    
+    # Trouver le prochain point connecté (différent du précédent)
+    suivant_row <- NA
+    suivant_col <- NA
+    
+    # Regarder les 4 voisins possibles
+    voisins <- list(
+      c(cur_row, cur_col - 1, "h_gauche"),
+      c(cur_row, cur_col,     "h_droite"),
+      c(cur_row - 1, cur_col, "v_haut"),
+      c(cur_row, cur_col,     "v_bas")
+    )
+    
+    # Arête gauche → voisin (row, col-1)
+    if (cur_col > 1 && ah[cur_row, cur_col - 1] == 1) {
+      nr <- cur_row; nc <- cur_col - 1
+      if (is.na(prev_row) || nr != prev_row || nc != prev_col) {
+        suivant_row <- nr; suivant_col <- nc
+      }
+    }
+    # Arête droite → voisin (row, col+1)
+    if (is.null(suivant_row) || is.na(suivant_row)) {
+      if (cur_col <= n && ah[cur_row, cur_col] == 1) {
+        nr <- cur_row; nc <- cur_col + 1
+        if (is.na(prev_row) || nr != prev_row || nc != prev_col) {
+          suivant_row <- nr; suivant_col <- nc
+        }
+      }
+    }
+    # Arête haut → voisin (row-1, col)
+    if (is.null(suivant_row) || is.na(suivant_row)) {
+      if (cur_row > 1 && av[cur_row - 1, cur_col] == 1) {
+        nr <- cur_row - 1; nc <- cur_col
+        if (is.na(prev_row) || nr != prev_row || nc != prev_col) {
+          suivant_row <- nr; suivant_col <- nc
+        }
+      }
+    }
+    # Arête bas → voisin (row+1, col)
+    if (is.null(suivant_row) || is.na(suivant_row)) {
+      if (cur_row <= n && av[cur_row, cur_col] == 1) {
+        nr <- cur_row + 1; nc <- cur_col
+        if (is.na(prev_row) || nr != prev_row || nc != prev_col) {
+          suivant_row <- nr; suivant_col <- nc
+        }
+      }
+    }
+    
+    if (is.na(suivant_row)) break
+    
+    # On est revenu au départ → boucle complète !
+    if (suivant_row == depart_row && suivant_col == depart_col) {
+      if (visites == total_segments) return("boucle_valide")
+      else return("plusieurs_boucles")
+    }
+    
+    prev_row <- cur_row
+    prev_col <- cur_col
+    cur_row <- suivant_row
+    cur_col <- suivant_col
+  }
+  
+  return("en_cours")
 }
 
 ui <- fluidPage(
@@ -26,7 +138,7 @@ ui <- fluidPage(
   mainPanel(
     plotOutput("grille", width = "400px", height = "400px",
                click = "clic_grille"),
-    textOutput("message")  # message de validation
+    uiOutput("message")
   )
 )
 
@@ -62,30 +174,36 @@ server <- function(input, output, session) {
     }
   })
   
-  # Vérification des contraintes
-  output$message <- renderText({
-    erreurs <- 0
-    ok <- 0
-    
+  # Message de statut
+  output$message <- renderUI({
+    # Contraintes
+    erreurs <- 0; ok <- 0
     for (i in 1:n) {
       for (j in 1:n) {
         val <- contraintes[n + 1 - i, j]
         if (!is.na(val)) {
-          segments_case <- compter_segments(ah(), av(), i, j)
-          if (segments_case == val) {
-            ok <- ok + 1
-          } else {
-            erreurs <- erreurs + 1
-          }
+          if (compter_segments(ah(), av(), i, j) == val) ok <- ok + 1
+          else erreurs <- erreurs + 1
         }
       }
     }
     
-    total <- ok + erreurs
-    if (erreurs == 0 && ok > 0) {
-      paste("Toutes les contraintes sont respectées !")
+    # Boucle
+    statut_boucle <- verifier_boucle(ah(), av())
+    
+    # Couleur et texte selon le statut
+    if (statut_boucle == "boucle_valide" && erreurs == 0) {
+      div(style = "color: #27ae60; font-size: 18px; font-weight: bold; margin-top: 10px;",
+          "Puzzle résolu ! Félicitations !")
+    } else if (statut_boucle == "invalide") {
+      div(style = "color: #e74c3c; font-size: 14px; margin-top: 10px;",
+          "Un point a trop de segments (doit être 0 ou 2)")
+    } else if (statut_boucle == "plusieurs_boucles") {
+      div(style = "color: #e67e22; font-size: 14px; margin-top: 10px;",
+          paste(ok, "/", ok + erreurs, "contraintes OK — attention : plusieurs boucles détectées"))
     } else {
-      paste(ok, "/", total, "contraintes respectées")
+      div(style = "color: #555; font-size: 14px; margin-top: 10px;",
+          paste(ok, "/", ok + erreurs, "contraintes respectées"))
     }
   })
   
@@ -94,45 +212,54 @@ server <- function(input, output, session) {
          xlim = c(-0.5, n + 0.5), ylim = c(-0.5, n + 0.5),
          asp = 1, xlab = "", ylab = "", axes = FALSE)
     
-    # Colorier les cases selon leur état
+    # Colorier les cases
     for (i in 1:n) {
       for (j in 1:n) {
         val <- contraintes[n + 1 - i, j]
         if (!is.na(val)) {
-          segments_case <- compter_segments(ah(), av(), i, j)
-          couleur <- if (segments_case == val) "#c8f7c5" else "white"
+          s <- compter_segments(ah(), av(), i, j)
+          couleur <- if (s == val) "#c8f7c5" else "white"
           rect(j - 1, i - 1, j, i, col = couleur, border = NA)
         }
       }
     }
     
-    # Arêtes tracées
-    for (i in 0:n) {
-      for (j in 1:n) {
+    # Colorier les points invalides en rouge
+    for (row in 1:(n + 1)) {
+      for (col in 1:(n + 1)) {
+        s <- segments_au_point(ah(), av(), row, col)
+        if (s == 1 || s == 3) {
+          points(col - 1, row - 1, pch = 19, cex = 2.2, col = "#e74c3c")
+        }
+      }
+    }
+    
+    # Arêtes
+    for (i in 0:n)
+      for (j in 1:n)
         if (ah()[i + 1, j] == 1)
           segments(j - 1, i, j, i, col = "steelblue", lwd = 3)
-      }
-    }
-    for (i in 1:n) {
-      for (j in 0:n) {
+    for (i in 1:n)
+      for (j in 0:n)
         if (av()[i, j + 1] == 1)
           segments(j, i - 1, j, i, col = "steelblue", lwd = 3)
-      }
-    }
     
-    # Points
+    # Points normaux
     for (i in 0:n)
-      for (j in 0:n)
-        points(j, i, pch = 19, cex = 1.8)
+      for (j in 0:n) {
+        s <- segments_au_point(ah(), av(), i + 1, j + 1)
+        if (s != 1 && s != 3)
+          points(j, i, pch = 19, cex = 1.8)
+      }
     
-    # Chiffres avec couleur selon l'état
+    # Chiffres
     for (i in 1:n) {
       for (j in 1:n) {
         val <- contraintes[n + 1 - i, j]
         if (!is.na(val)) {
-          segments_case <- compter_segments(ah(), av(), i, j)
-          couleur_texte <- if (segments_case == val) "#27ae60" else "#e74c3c"
-          text(j - 0.5, i - 0.5, labels = val, cex = 2, font = 2, col = couleur_texte)
+          s <- compter_segments(ah(), av(), i, j)
+          col_texte <- if (s == val) "#27ae60" else "#e74c3c"
+          text(j - 0.5, i - 0.5, labels = val, cex = 2, font = 2, col = col_texte)
         }
       }
     }
