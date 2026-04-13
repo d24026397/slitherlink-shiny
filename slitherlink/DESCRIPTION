@@ -1,0 +1,11 @@
+Package: slitherlink
+Title: Application Shiny pour le jeu Slitherlink
+Version: 0.1.0
+Authors@R: person("Houenafa ", "DJOSSOU", role = c("aut", "cre"),
+                   email = "houenafa-esperance-g.djossou@etu.umontpellier.fr")
+Description: Une bibliothèque R et une application Shiny interactive
+    pour jouer au puzzle logique Slitherlink.
+License: MIT
+Encoding: UTF-8
+Imports:
+    shiny
